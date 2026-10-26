@@ -5,11 +5,11 @@
 [Vobiz](https://www.vobiz.ai) puts Sprag models on a phone number. It is
 India-first telephony infrastructure: numbers, SIP trunks and a bidirectional
 media stream that carries a live call to your application as a WebSocket.
-The Vobiz Omni Bridge connects that stream to Sprag's realtime WebSocket, so
+The Vobiz Direct Bridge connects that stream to Sprag's realtime WebSocket, so
 a phone call becomes a Sprag session with nothing in between.
 
 ```text
-phone <-- Vobiz --> vobiz omni bridge <-- WebSocket --> api.sprag.ai
+phone <-- Vobiz --> Vobiz Direct Bridge <-- WebSocket --> api.sprag.ai
 ```
 
 ## Before you start
@@ -30,7 +30,7 @@ Inbound calls need a public HTTPS hostname. Vobiz posts to an answer URL on
 your server and opens a secure WebSocket for media; a tunnel such as
 `cloudflared` is enough while developing.
 
-## Run the bridge
+## Run the Vobiz Direct Bridge
 
 ```bash
 git clone https://github.com/vobiz-ai/vobiz-vllm-omni-bridge.git
@@ -57,7 +57,7 @@ Use `s2s` for the lowest latency and natural turn-taking. Use `pipeline` when
 you need a transcript, text-level guardrails, a different LLM, or an Indian
 voice.
 
-## What the bridge handles
+## What the Vobiz Direct Bridge handles
 
 Every Vobiz call feature is a flag, read once at startup and shown on `/health`:
 
