@@ -86,6 +86,109 @@ Details, VRAM and the exact serve commands are in [docs/models.md](docs/models.m
 The bridge branches on the `capabilities` object the server returns, never on
 the model name, so a new duplex model works without a code change.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Caller
+        C["Caller<br/>PSTN, +91 mobile"]
+    end
+
+    subgraph Vobiz
+        APP["Voice Application<br/>answer_url · hangup_url"]
+        CALL["Call API<br/>POST /Call · AMD"]
+        MEDIA["Media server<br/>Record · Speak · Stream bidirectional<br/>L16 16 kHz in · L16 24 kHz out"]
+        REC["Recordings · CDR<br/>RecordStop · Hangup event"]
+    end
+
+    subgraph Bridge["vobiz-vllm-omni-bridge (container)"]
+        API["app.py · FastAPI<br/>/answer /amd /transfer /ring /fallback /hangup<br/>HMAC verify · admin token · flags"]
+        VS["vobiz_stream.py + audio.py<br/>media → PCM · playAudio 20 ms<br/>checkpoint · clearAudio · resample"]
+        RT["realtime.py<br/>session.update · capabilities<br/>playback.ack · barge-in · goodbye detector"]
+        TOOLS["tools.py<br/>end_call · transfer_to_human · send_dtmf"]
+        DATA[("data/<br/>events.jsonl · call-uuid.json")]
+        OBS["/health · /metrics · /calls"]
+    end
+
+    subgraph GPU["GPU host (compose gpu profile)"]
+        OMNI["vllm serve --omni<br/>/v1/realtime?duplex=1 · /health<br/>MiniCPM-o 4.5 · Qwen3-Omni · Nemotron"]
+        STAGES["vLLM-Omni stages<br/>Thinker → Talker → Code2Wav"]
+        HF[("HF cache volume<br/>model weights")]
+    end
+
+    OPS["Operator<br/>call.py · tunnel or proxy · docker compose"]
+
+    C <-- RTP --> MEDIA
+    APP -- POST --> API
+    API -- XML --> APP
+    MEDIA <-- WebSocket --> VS
+    VS <--> RT
+    RT <-- WebSocket, Docker network --> OMNI
+    OMNI --- STAGES
+    OMNI --- HF
+    RT --> TOOLS
+    TOOLS -- REST --> CALL
+    OPS -. POST /Call .-> CALL
+    REC -. webhooks .-> API
+    API --> DATA
+    API --> OBS
+    API -. probe /health .-> OMNI
+    OPS -. scrape .-> OBS
+```
+
+Three planes run through that picture:
+
+| Plane | Protocol | What moves |
+|---|---|---|
+| Control | HTTPS | Vobiz webhooks in (`/answer`, `/amd`, `/hangup`, `RecordStop`), XML and REST out (transfer, hangup, DTMF, make-call) |
+| Media | WebSocket, RTP | One Vobiz stream and one duplex session per call. PCM both ways, 20 ms frames out, `checkpoint` → `playback.ack`, `clearAudio` on barge-in |
+| Ops | HTTP, files | `/health` (including a probe of the model server), `/metrics`, `/calls`, `events.jsonl`, the dialer, the tunnel |
+
+### One call, end to end
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Op as call.py
+    participant V as Vobiz
+    participant B as Bridge
+    participant M as vllm serve --omni
+    participant C as Caller
+
+    Op->>B: compliance check (caller ID, IST window, consent)
+    Op->>V: POST /Call (answer, hangup, ring, fallback URLs, AMD)
+    V->>C: ring
+    C-->>V: answer
+    V->>B: POST /answer
+    B-->>V: XML: Record? · Speak greeting · Stream bidirectional
+    V->>B: WebSocket start
+    B->>M: connect /v1/realtime?duplex=1
+    M-->>B: session.created (capabilities: barge-in, playback ack, chunk period)
+    B->>M: session.update (pcm16 16k in / 24k out, server_vad, overlap_policy, instructions, tools)
+    loop every 20 ms
+        C-->>V: speech
+        V->>B: media (base64 PCM)
+        B->>M: input_audio_buffer.append
+    end
+    M-->>B: response.created → output_audio.delta …
+    B->>V: playAudio frames + checkpoint
+    V-->>C: agent speaks
+    V->>B: playedStream
+    B->>M: playback.ack (played_ms)
+    C-->>V: interrupts
+    M-->>B: speech_started / overlap.decision
+    B->>V: clearAudio
+    B->>M: playback.ack (truncate)
+    M-->>B: transcript "…goodbye"
+    B->>B: goodbye detected → hang up after playback
+    B->>V: stop
+    V->>B: POST /hangup (Event=Hangup)
+```
+
+Models that advertise tool calling (Nemotron VoiceChat) end the call through
+`end_call` instead of the goodbye detector; the bridge decides from the
+`capabilities` object on `session.created`, never from the model name.
+
 ## What happens on the call
 
 1. Optional `<Record>` with a spoken disclosure, then a greeting from Vobiz
