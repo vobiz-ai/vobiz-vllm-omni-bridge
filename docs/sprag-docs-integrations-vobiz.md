@@ -4,15 +4,13 @@
 
 [Vobiz](https://www.vobiz.ai) puts Sprag models on a phone number. It is
 India-first telephony infrastructure: numbers, SIP trunks and a bidirectional
-media stream that carries a live call to your application. A call reaches
-Sprag one of three ways, and all three use the same Sprag API key and base
-URL.
+media stream that carries a live call to your application as a WebSocket.
+The Vobiz Omni Bridge connects that stream to Sprag's realtime WebSocket, so
+a phone call becomes a Sprag session with nothing in between.
 
-| Route | How the call reaches Sprag | Pick it for |
-| --- | --- | --- |
-| [Pipecat](#pipecat) | Vobiz media stream → `pipecat-vobiz` serializer → `pipecat-sprag` services | Swappable stages, Pipecat's own turn-taking and tools |
-| [LiveKit](#livekit) | Vobiz SIP trunk → LiveKit room → agent on Sprag through the OpenAI plugin | WebRTC and phone callers in one room |
-| [Direct bridge](#direct-bridge) | Vobiz media stream → `vobiz-omni-bridge` → Sprag realtime or STT, LLM and TTS sessions | Lowest latency, every Vobiz call feature as a flag |
+```text
+phone <-- Vobiz --> vobiz omni bridge <-- WebSocket --> api.sprag.ai
+```
 
 ## Before you start
 
@@ -32,122 +30,50 @@ Inbound calls need a public HTTPS hostname. Vobiz posts to an answer URL on
 your server and opens a secure WebSocket for media; a tunnel such as
 `cloudflared` is enough while developing.
 
-## Pipecat
-
-[Vobiz-X-Pipecat](https://github.com/vobiz-ai/Vobiz-X-Pipecat) is Vobiz's
-Pipecat example. Its `VobizFrameSerializer` (from the `pipecat-vobiz`
-package) turns the Vobiz media stream into Pipecat frames and back, and
-handles barge-in and hangup. Put the three `pipecat-sprag` services in the
-transcribe, generate and speak positions:
+## Run the bridge
 
 ```bash
-uv add pipecat-sprag pipecat-vobiz
-```
-
-```python
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
-from pipecat_sprag.llm import SpragLLMService
-from pipecat_sprag.stt import SpragSTTService
-from pipecat_sprag.tts import SpragTTSService
-from pipecat_vobiz import VobizFrameSerializer
-
-transport = FastAPIWebsocketTransport(
-    websocket=websocket,
-    params=FastAPIWebsocketParams(
-        audio_in_enabled=True,
-        audio_out_enabled=True,
-        add_wav_header=False,
-        serializer=VobizFrameSerializer(stream_id=stream_id, call_id=call_id),
-    ),
-)
-
-stt = SpragSTTService()
-llm = SpragLLMService(
-    settings=SpragLLMService.Settings(
-        system_instruction="You are on a telephone call. Keep every reply to one or two short sentences.",
-    ),
-)
-tts = SpragTTSService(settings=SpragTTSService.Settings(voice="priya"))
-
-pipeline = Pipeline([
-    transport.input(),
-    stt,
-    user_aggregator,
-    llm,
-    tts,
-    transport.output(),
-    assistant_aggregator,
-])
-```
-
-To collapse the three stages into one Symphony session, use
-`OpenAIRealtimeLLMService` with `base_url="wss://api.sprag.ai/v1/realtime"`
-as described on the [Pipecat LLM page](/docs/integrations/pipecat/llm).
-
-The serializer expects the answer document that Vobiz-X-Pipecat returns:
-
-```xml
-<Response>
-    <Stream bidirectional="true" audioTrack="inbound" keepCallAlive="true"
-            contentType="audio/x-mulaw;rate=8000">wss://your-host/ws</Stream>
-</Response>
-```
-
-## LiveKit
-
-Vobiz delivers the call to LiveKit over SIP, and the agent uses Sprag through
-LiveKit's OpenAI plugin as on the [LiveKit page](/docs/integrations/livekit).
-Nothing Sprag-specific changes; only the trunk does.
-
-1. In LiveKit Cloud, create an inbound trunk and a dispatch rule. Allow the
-   [Vobiz SIP signalling addresses](https://www.vobiz.ai/docs/concepts/ip-whitelisting#sip-signaling).
-2. In the Vobiz Console, create an inbound trunk whose primary URI is your
-   LiveKit SIP host (`<id>.sip.livekit.cloud`, hostname only, no `sip:`), and
-   link your number to it.
-3. For outbound calls, create a Vobiz outbound trunk with a credential and use
-   its `<id>.sip.vobiz.ai` domain, username and password on a LiveKit outbound
-   trunk.
-
-```python
-from livekit.agents import AgentSession
-from livekit.plugins import openai
-
-session = AgentSession(
-    llm=openai.realtime.RealtimeModel(
-        base_url="wss://api.sprag.ai/v1/realtime",
-        api_key=os.environ["SPRAG_API_KEY"],
-        model="symphony",
-    ),
-)
-```
-
-The full trunk setup is on the
-[Vobiz LiveKit integration page](https://www.vobiz.ai/docs/integrations/livekit).
-
-## Direct bridge
-
-[vobiz-omni-bridge](https://github.com/vobiz-ai/vobiz-omni-bridge) connects
-the Vobiz media stream to Sprag with no framework in between. One setting
-chooses the engine:
-
-| `MODE` | Sprag sessions it opens | Measured on a live call |
-| --- | --- | --- |
-| `s2s` | `wss://api.sprag.ai/v1/realtime?model=symphony` | first reply audio 197 to 286 ms after the caller stops |
-| `pipeline` | Rhythm over `/v1/audio/transcriptions`, chat completions, Chorus over `/v1/audio/speech` | 1.5 to 1.8 s, with a caller transcript and the `priya` voice |
-
-```bash
-git clone https://github.com/vobiz-ai/vobiz-omni-bridge.git
-cd vobiz-omni-bridge
+git clone https://github.com/vobiz-ai/vobiz-vllm-omni-bridge.git
+cd vobiz-vllm-omni-bridge
 cp .env.example .env     # VOBIZ_AUTH_ID, VOBIZ_AUTH_TOKEN, FROM_NUMBER, SPRAG_API_KEY
 docker compose up -d --build
 docker compose run --rm call --to +91XXXXXXXXXX
 ```
 
-Every Vobiz call feature is a flag: audio formats (L16 at 8, 16 or 24 kHz,
-mu-law at 8 kHz), answering machine detection, session recording, transfer to
-a human, DTMF in both directions, HMAC verification of Vobiz callbacks, and
-India calling-window and consent checks before an outbound dial.
+For inbound calls, create a Vobiz Voice Application whose `answer_url` is
+`https://<your host>/answer` and `hangup_url` is `https://<your host>/hangup`,
+and attach a number.
+
+## Two engines
+
+One setting chooses how the call reaches Sprag:
+
+| `MODE` | Sprag sessions the bridge opens | Measured on a live call |
+| --- | --- | --- |
+| `s2s` | `wss://api.sprag.ai/v1/realtime?model=symphony` | first reply audio 197 to 286 ms after the caller stops |
+| `pipeline` | Rhythm over `/v1/audio/transcriptions`, chat completions, Chorus over `/v1/audio/speech` | 1.5 to 1.8 s, with a caller transcript and the `priya` voice |
+
+Use `s2s` for the lowest latency and natural turn-taking. Use `pipeline` when
+you need a transcript, text-level guardrails, a different LLM, or an Indian
+voice.
+
+## What the bridge handles
+
+Every Vobiz call feature is a flag, read once at startup and shown on `/health`:
+
+- Audio formats on both legs: L16 at 8, 16 or 24 kHz, mu-law at 8 kHz. The
+  defaults (16 kHz in, 24 kHz out) need no conversion against Sprag.
+- Barge-in: Sprag's `speech_started` becomes a Vobiz `clearAudio`; the next
+  reply waits for the carrier's acknowledgement.
+- Greeting from Vobiz text-to-speech before the stream opens, or from Chorus.
+- Session recording with a spoken disclosure.
+- Answering machine detection, with a voicemail message for outbound campaigns.
+- Tools the agent can call: `end_call`, `transfer_to_human`, `send_dtmf`, and
+  `record_outcome` for a structured result per call.
+- India calling rules checked before an outbound dial: Indian caller ID,
+  the 10:00 to 20:00 IST window for promotional traffic, consent reference.
+- Signature verification of every Vobiz callback, admin token, concurrency
+  cap, watchdogs, Prometheus metrics, per-call event logs.
 
 ## Audio formats
 
@@ -164,12 +90,5 @@ through the `priya`, `arjuna` and `fatima` presets; Hindi speech output is not
 yet available on Chorus or Symphony, so an Indian agent today understands
 Hindi and replies in English.
 
-## Choosing between them
-
-Use [Pipecat](#pipecat) when you already build on Pipecat or want to swap a
-stage. Use [LiveKit](#livekit) when browser and phone callers share a room.
-Use the [direct bridge](#direct-bridge) when latency and Vobiz call control
-matter most, or as the reference for the Vobiz stream protocol.
-
-If you are not building on a framework at all, the [realtime API](/docs/realtime)
-is what the direct bridge talks to.
+If you are not using the bridge at all, the [realtime API](/docs/realtime)
+is what it talks to.
