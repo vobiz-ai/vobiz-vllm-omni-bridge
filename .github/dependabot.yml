@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      runtime:
+        patterns: ["fastapi", "uvicorn", "websockets", "httpx", "requests", "python-dotenv", "python-multipart"]
+      tooling:
+        patterns: ["pytest*", "ruff"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly

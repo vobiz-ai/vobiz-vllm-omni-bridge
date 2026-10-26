@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Vobiz documentation
+    url: https://www.vobiz.ai/docs
+    about: Stream verb, make-call, AMD, recording and signature reference
+  - name: vLLM-Omni full-duplex API
+    url: https://github.com/vllm-project/vllm-omni/blob/main/docs/serving/full_duplex_api.md
+    about: The duplex lane the bridge speaks: events, capabilities, deploy configs
+  - name: Security report
+    url: mailto:security@vobiz.ai
+    about: Credential leaks and vulnerabilities go here, never in a public issue

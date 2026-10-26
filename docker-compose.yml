@@ -1,0 +1,102 @@
+# docker compose --profile gpu up -d           # model server on this host's GPUs + bridge
+# docker compose up -d                         # bridge only; REALTIME_URL points at a server elsewhere
+# docker compose --profile gpu --profile tunnel up -d   # plus a named Cloudflare tunnel (TUNNEL_TOKEN, PUBLIC_URL)
+# docker compose run --rm call                 # dial TO_NUMBER through the running bridge
+# docker compose run --rm test                 # pytest inside the bridge image
+#
+# All configuration comes from .env (copy .env.example). See docs/deployment.md.
+
+services:
+  # vLLM-Omni full-duplex model server. The official image has no entrypoint; the
+  # command is the documented `vllm serve <model> --omni`. MiniCPM-o 4.5 serves the
+  # duplex lane by default; other models need --deploy-config in OMNI_EXTRA_ARGS.
+  vllm-omni:
+    image: vllm/vllm-omni:${OMNI_IMAGE_TAG:-v0.30.0}
+    profiles: ["gpu"]
+    command: >
+      vllm serve ${OMNI_MODEL:-openbmb/MiniCPM-o-4_5} --omni --trust-remote-code
+      --host 0.0.0.0 --port ${OMNI_PORT:-8091} ${OMNI_EXTRA_ARGS:-}
+    environment:
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+    volumes:
+      - ${HF_HOME:-hf-cache}:/root/.cache/huggingface
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${OMNI_GPUS:-all}
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${OMNI_PORT:-8091}/health', timeout=5).status == 200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 900s     # first start downloads the weights and captures CUDA graphs
+      retries: 10
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  bridge:
+    build:
+      context: .
+      args:
+        WITH_CLOUDFLARED: "${WITH_CLOUDFLARED:-true}"
+    image: vobiz-vllm-omni-bridge:local
+    env_file: .env
+    environment:
+      HTTP_PORT: "${HTTP_PORT:-8000}"
+    ports:
+      - "${HTTP_PORT:-8000}:${HTTP_PORT:-8000}"
+    volumes:
+      - bridge-data:/app/data
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # Named Cloudflare tunnel for production. Route your hostname to http://bridge:8000,
+  # put the token in TUNNEL_TOKEN and set PUBLIC_URL=https://<your hostname> in .env.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN:-}"
+    profiles: ["tunnel"]
+    depends_on:
+      - bridge
+    restart: unless-stopped
+
+  # One-off outbound call through the running bridge: docker compose run --rm call [--to +91...]
+  call:
+    image: vobiz-vllm-omni-bridge:local
+    env_file: .env
+    environment:
+      BRIDGE_INTERNAL_URL: "http://bridge:${HTTP_PORT:-8000}"
+    volumes:
+      - bridge-data:/app/data
+    entrypoint: ["python", "call.py"]
+    profiles: ["tools"]
+    depends_on:
+      - bridge
+
+  # Unit tests inside the image: docker compose run --rm test
+  test:
+    image: vobiz-vllm-omni-bridge:local
+    entrypoint: ["python", "-m", "pytest", "-q"]
+    profiles: ["tools"]
+
+volumes:
+  bridge-data:
+  hf-cache:

@@ -1,0 +1,39 @@
+name: Bug report
+description: Something on a call or in the bridge did not behave as documented
+labels: [bug]
+body:
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Model
+      options:
+        - MiniCPM-o 4.5 on vLLM-Omni
+        - Qwen3-Omni on vLLM-Omni
+        - Nemotron VoiceChat on vLLM-Omni
+        - another duplex model
+        - not call related (tests, Docker, docs)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What the caller heard, what the logs said, what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: flags
+    attributes:
+      label: Flags
+      description: Paste the flag table from `GET /health` or the startup banner. Secrets are already hidden there.
+      render: text
+  - type: textarea
+    id: events
+    attributes:
+      label: Events
+      description: Relevant lines from `data/events.jsonl` or the per-call JSON, with phone numbers masked.
+      render: json
+  - type: input
+    id: version
+    attributes:
+      label: Commit or image tag

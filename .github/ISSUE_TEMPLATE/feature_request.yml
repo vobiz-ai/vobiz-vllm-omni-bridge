@@ -1,0 +1,19 @@
+name: Feature request
+description: A Vobiz feature, model backend, persona or deployment option the bridge should support
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do on the call
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed flag or change
+      description: Most additions are a new flag with a safe default. Say what the default should be.
+  - type: input
+    id: docs
+    attributes:
+      label: Vobiz or vLLM-Omni docs page this relies on

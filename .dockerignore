@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+.runtime.json
+data/
+media/reply*.wav
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+docs/*.png
+*.log
+.DS_Store

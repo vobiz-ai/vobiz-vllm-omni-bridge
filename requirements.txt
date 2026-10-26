@@ -1,0 +1,13 @@
+# Runtime
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+websockets==17.3
+httpx==0.28.1
+requests==2.34.2
+python-dotenv==1.2.4
+python-multipart==0.0.32
+
+# Tests and lint (small enough to ship in the image so `docker compose run test` works)
+pytest==9.1.1
+pytest-asyncio==1.4.1
+ruff==0.17.2

@@ -1,0 +1,40 @@
+[project]
+name = "vobiz-vllm-omni-bridge"
+version = "1.0.0"
+description = "Vobiz <Stream> bridge for self-hosted vLLM-Omni full-duplex voice agents, every Vobiz feature as a flag"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Vobiz" }]
+keywords = ["vobiz", "vllm-omni", "voice-agent", "telephony", "speech-to-speech", "self-hosted", "india"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Communications :: Telephony",
+  "Framework :: FastAPI",
+]
+
+[project.urls]
+Homepage = "https://github.com/vobiz-ai/vobiz-vllm-omni-bridge"
+Documentation = "https://github.com/vobiz-ai/vobiz-vllm-omni-bridge#readme"
+Issues = "https://github.com/vobiz-ai/vobiz-vllm-omni-bridge/issues"
+Vobiz = "https://www.vobiz.ai/docs"
+vLLM-Omni = "https://vllm-omni.readthedocs.io"
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "B008", "B904"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["audio", "config", "personas", "realtime", "tools", "vobiz_api", "vobiz_stream"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
