@@ -8,6 +8,6 @@ python-dotenv==1.2.4
 python-multipart==0.0.32
 
 # Tests and lint (small enough to ship in the image so `docker compose run test` works)
-pytest==9.1.1
+pytest==9.2.0
 pytest-asyncio==1.4.1
-ruff==0.17.2
+ruff==0.17.3
