@@ -7,7 +7,7 @@
 # quick tunnel by itself when PUBLIC_URL is empty (development). Production images
 # behind a real hostname can build with --build-arg WITH_CLOUDFLARED=false.
 
-FROM python:3.12-slim AS base
+FROM python:3.15-slim AS base
 
 ARG WITH_CLOUDFLARED=true
 
